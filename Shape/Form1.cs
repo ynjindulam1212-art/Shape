@@ -21,6 +21,8 @@ namespace ShapeApp
 
         // Шулуун (цэг холбох) горим
         private bool isPolylineMode;
+        private bool isLineMode;
+        private Point? lineStart; 
         private readonly List<Point> pendingPoints = new();
 
         private readonly MenuStrip menu = new();
@@ -45,8 +47,8 @@ namespace ShapeApp
                 SetTool("Тэгш өнцөгт", (w, h) => new Rectangle(w, h)));
             shapeMenu.DropDownItems.Add("Гурвалжин", null, (s, e) =>
                 SetTool("Гурвалжин", (w, h) => new Triangle(w, h)));
-            shapeMenu.DropDownItems.Add("Шулуун (цэг холбох)", null, (s, e) => SetPolylineTool());
-            shapeMenu.DropDownItems.Add(new ToolStripSeparator());
+            shapeMenu.DropDownItems.Add("Шулуун (2 цэг)", null, (s, e) => SetLineTool());
+            shapeMenu.DropDownItems.Add("Олон цэг холбох", null, (s, e) => SetPolylineTool()); shapeMenu.DropDownItems.Add(new ToolStripSeparator());
             shapeMenu.DropDownItems.Add("Цэвэрлэх", null, (s, e) =>
             {
                 drawnShapes.Clear();
@@ -89,6 +91,8 @@ namespace ShapeApp
         private void SetTool(string name, Func<int, int, Shape> factory)
         {
             FinishPolyline(); // хагас зурсан цэгүүд байвал дүрс болгож хадгална
+            isLineMode = false;
+lineStart = null;
             shapeFactory = factory;
             isPolylineMode = false;
             Text = $"Дүрсүүд - сонгосон: {name} (хулганаар чирж зурна)";
@@ -99,21 +103,39 @@ namespace ShapeApp
         private void SetPolylineTool()
         {
             FinishPolyline();
+            isLineMode = false;
+            lineStart = null;
             shapeFactory = null;
             isPolylineMode = true;
             Text = "Шулуун - зүүн товчоор цэг тавина. Эхний цэг дээр дарвал дүрс хаагдана. Баруун товч = дуусгах, Esc = болиулах";
             Invalidate();
         }
 
+        // Шулуун (2 цэг) хэрэгслийг сонгоно
+        private void SetLineTool()
+        {
+            FinishPolyline();
+            shapeFactory = null;
+            isPolylineMode = false;
+            isLineMode = true;
+            lineStart = null;
+            Text = "Шулуун - эхний цэг дээр дарж, дараа нь хоёр дахь цэг дээр дарна. Баруун товч/Esc = болиулах";
+            Invalidate();
+        }
+
         // Цэгүүдийг холбож дүрс болгоно (3+ цэг бол хаагдаж будагдана)
         private void FinishPolyline()
         {
-            if (pendingPoints.Count >= 2)
+            if (pendingPoints.Count == 2)
             {
-                bool closed = pendingPoints.Count >= 3;
-                var shape = new Polyline(pendingPoints, closed) { FillColor = currentColor };
-                drawnShapes.Add((shape, Point.Empty));
+                var line = new Line(pendingPoints[0], pendingPoints[1]) { FillColor = currentColor };
+                drawnShapes.Add((line, Point.Empty));
             }
+            else if (pendingPoints.Count >= 3)
+            {
+                var polygon = new Polyline(pendingPoints, true) { FillColor = currentColor };
+                drawnShapes.Add((polygon, Point.Empty));
+             }
             pendingPoints.Clear();
             Invalidate();
         }
@@ -140,8 +162,9 @@ namespace ShapeApp
         protected override void OnKeyDown(KeyEventArgs e)
         {
             base.OnKeyDown(e);
-            if (e.KeyCode == Keys.Escape && isPolylineMode)
+            if (e.KeyCode == Keys.Escape )
             {
+                lineStart = null;
                 pendingPoints.Clear();
                 Invalidate();
             }
@@ -151,6 +174,39 @@ namespace ShapeApp
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
+
+            // Шулуун (2 цэг) горим
+            if (isLineMode)
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    if (lineStart == null)
+                    {
+                        // Эхний цэг
+                        lineStart = e.Location;
+                        currentPoint = e.Location;
+                    }
+                    else
+                    {
+                        // Хоёр дахь цэг: шулуун үүсгэнэ
+                        if (Distance(lineStart.Value, e.Location) >= 3)
+                        {
+                            var line = new Line(lineStart.Value, e.Location) { FillColor = currentColor };
+                            drawnShapes.Add((line, Point.Empty));
+                        }
+                        lineStart = null;
+                    }
+                    Invalidate();
+                }
+                else if (e.Button == MouseButtons.Right)
+                {
+                    lineStart = null; // болиулах
+                    Invalidate();
+                }
+                return;
+            }
+
+
 
             // Шулуун горим: зүүн товч = цэг нэмэх, баруун товч = дуусгах
             if (isPolylineMode)
@@ -249,6 +305,22 @@ namespace ShapeApp
                     preview.FillColor = currentColor;
                     preview.Draw(e.Graphics, x, y);
                 }
+            }
+            // Шулууны урьдчилсан харагдац: эхний цэгээс хулганы байрлал хүртэл
+            if (isLineMode && lineStart != null)
+            {
+
+                Point p = lineStart.Value;
+
+                e.Graphics.FillEllipse(Brushes.Red, lineStart.Value.X - 5, lineStart.Value.Y - 5, 10, 10);
+
+
+                // Эхний цэгээс хулганы байрлал хүртэл тасархай шугам
+                using var linePen = new Pen(currentColor, 3)
+                {
+                    DashStyle = System.Drawing.Drawing2D.DashStyle.Dash
+                };
+                e.Graphics.DrawLine(linePen, p, currentPoint);
             }
 
             // Цэг холбож байх үеийн урьдчилсан шугам
